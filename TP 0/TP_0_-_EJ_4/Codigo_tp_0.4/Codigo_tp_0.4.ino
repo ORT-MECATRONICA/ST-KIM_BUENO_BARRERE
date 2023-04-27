@@ -7,6 +7,8 @@
 
 #define BTN_PIN 11
 #define BTN_PIN2 12
+bool readBtn;
+bool readBtn2;
 bool doubleBtnSt;
 bool btnState;
 bool btnState2;
@@ -33,10 +35,11 @@ float temperature;
 
 int ms;
 
-Adafruit_SSD1306 display(OLED_RST);
-DHT dht(DHTPIN, DHTTYPE);
-
 void setup() {
+
+  Adafruit_SSD1306 display(OLED_RST);
+  DHT dht(DHTPIN, DHTTYPE);
+  
   pinMode(BTN_PIN,INPUT_PULLUP);
   pinMode(BTN_PIN2,INPUT_PULLUP);
   pinMode(RELAY_PIN, OUTPUT);
@@ -53,7 +56,7 @@ void setup() {
 void loop() {
   
   timer();
-
+  stateMachine();
 }
 
 void stateMachine(){
@@ -63,6 +66,9 @@ void stateMachine(){
       
       delay(2000);
       temperature = dht.readTemperature();
+
+      readBtn = digitalRead(BTN_PIN);
+      readBtn2 = digitalRead(BTN_PIN2);
       
       if(ms >= 500){
         
@@ -78,8 +84,10 @@ void stateMachine(){
     break;
 
     case CHOOSE:
+
+    
       
-      if(BTN_PIN == LOW && BTN_PIN2 == LOW && doubleBtnSt == 1){
+      if(readBtn == LOW && readBtn2 == LOW && doubleBtnSt == 1){
         
         state++;
         
@@ -119,14 +127,14 @@ void stateMachine(){
       display.print(umbral);
       display.print(" C");
 
-      if(BTN_PIN == LOW && btnState == 1){
+      if(readBtn == LOW && btnState == 1){
         
         umbral--;
         btnState == 0;
         
       }
       
-      if(BTN_PIN2 == LOW && btnState2 == 1){
+      if(readBtn2 == LOW && btnState2 == 1){
         
         umbral++;
         btnState2 == 0;
@@ -140,7 +148,7 @@ void stateMachine(){
     case WAIT:
     sM = INICIAL;
     
-      if(BTN_PIN == HIGH && BTN_PIN2 == HIGH && doubleBtnSt == 0){
+      if(readBtn == HIGH && readBtn2 == HIGH && doubleBtnSt == 0){
         
         doubleBtnSt == 1;
         
@@ -151,13 +159,13 @@ void stateMachine(){
         }  
       }
       
-      if(BTN_PIN == HIGH && BTN_PIN2 == HIGH && btnState == 0){
+      if(readBtn == HIGH && readBtn2 == HIGH && btnState == 0){
         
         btnState == 1;
         
       }
       
-      if(BTN_PIN == HIGH && BTN_PIN2 == HIGH && btnState2 == 0){
+      if(readBtn == HIGH && readBtn2 == HIGH && btnState2 == 0){
         
         btnState2 == 1;
 
