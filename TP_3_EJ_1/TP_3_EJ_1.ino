@@ -12,10 +12,10 @@
 #include <Wire.h>
 
 //WiFi
-const char* ssid = "ORT-IoT";
-const char* password = "OrtIOTnew22$2";
-//const char* ssid = "Fibertel WiFi247 2.4GHz";
-//const char* password = "0042411200";
+//const char* ssid = "ORT-IoT";
+//const char* password = "OrtIOTnew22$2";
+const char* ssid = "Fibertel WiFi247 2.4GHz";
+const char* password = "0042411200";
 WiFiClientSecure client;
 
 //Bot Telegram
@@ -94,10 +94,10 @@ void setup() {
   ///bloquea el programa si no se puede conectar a internet 
   while (WiFi.status() != WL_CONNECTED) {   
     delay(1000);
-    Serial.println("Connecting to WiFi..");
+    Serial.println("Connecting to WiFi...");
   }
     Serial.println(WiFi.localIP());
-    bot.sendMessage(CHAT_ID, "Bot Hola mundo", "");
+    bot.sendMessage(CHAT_ID, "Hola mundo", "");
 }
 
 
@@ -109,25 +109,6 @@ void loop() {
     readBtn2 = digitalRead(BTN_PIN2);
     
 
-    stateMachine();
-
-    if (millis() > lastTimeBotRan + botRequestDelay) {
-
-    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-
-    if (numNewMessages) {
-      Serial.println("Veo los msj nuevos");
-      //handleNewMessages(numNewMessages);
-      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    }
-    lastTimeBotRan = millis();
-  }
-}
-
-
-
-
-void stateMachine(){
     switch(sM){
         case SCR1:
         {
@@ -244,5 +225,17 @@ void handleNewMessages(int numNewMessages) {
       bot.sendMessage(chat_id, (String) umbral, "");
 
     }
+  }
+
+    if (millis() > lastTimeBotRan + botRequestDelay) {
+
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+    if (numNewMessages) {
+      Serial.println("Veo los msj nuevos");
+      //handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    lastTimeBotRan = millis();
   }
 }
