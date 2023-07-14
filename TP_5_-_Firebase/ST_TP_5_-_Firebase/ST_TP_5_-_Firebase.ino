@@ -1,260 +1,349 @@
-#include <Preferences.h>
+// TP 5 - Luka K y Ariel B.
+
+#include <Arduino.h>
+#include <Firebase_ESP_Client.h>
 #include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <Arduino.h>
+#include <ESP32Time.h>
+#include "time.h"
 #include <WiFi.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Arduino.h>
-#include <Firebase_ESP_Client.h>
-#include "time.h"
+#include <DHT.h>
+#include <DHT_U.h>
 
-//const char* WIFI_SSID = "ORT-IoT";
-  //const char* WIFI_PASSWORD = "OrtIOTnew22$2";
-  const char* WIFI_SSID = "Fibertel WiFi247 2.4GHz";
-  const char* WIFI_PASSWORD = "0042411200";
+#define SCREEN_WIDTH 128 // Anchura OLED display en pixeles
+#define SCREEN_HEIGHT 64 // Altura OLED display en pixeles
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define DHTPIN 23     // Pin digital conectado al sensor DHT
+#define DHTTYPE    DHT11     // DHT 11
 
-// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+#define SW_1 34
+#define SW_2 35
 
-// Provide the token generation process info.
-#include "addons/TokenHelper.h"
-// Provide the RTDB payload printing info and other helper functions.
-#include "addons/RTDBHelper.h"
+#define PANTALLA_1 0
+#define ESPERA_1 1
+#define PANTALLA_2 2
+#define SUMA_CICLO 3
+#define RESTA_CICLO 4
+#define ESPERA_2 5
 
-#define API_KEY "AIzaSyAHtcsQ9nZNft14mEnK8IYCrcQ0wmbjz40"
-#define USER_EMAIL "lukakm06@gmail.com"
+#include "addons/TokenHelper.h" // Provide the token generation process info.
+#include "addons/RTDBHelper.h" // Provide the RTDB payload printing info and other helper functions.
+
+#define WIFI_SSID "ORT-IoT"
+#define WIFI_PASSWORD "OrtIOTnew22$2"
+
+#define API_KEY "AIzaSyAHtcsQ9nZNft14mEnK8IYCrcQ0wmbjz40" // Insert Firebase project API Key
+
+#define USER_EMAIL "lukakim06@gmail.com" // Insert Authorized Email and Corresponding Password
 #define USER_PASSWORD "TuberculoBueno"
 
-// Insert RTDB URLefine the RTDB URL
-#define DATABASE_URL "https://fir-st-tp-5-default-rtdb.firebaseio.com/"
+#define DATABASE_URL "https://fir-st-tp-5-default-rtdb.firebaseio.com/" // Insert RTDB URLefine the RTDB URL
 
-// Define Firebase objects
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-// Variable to save USER UID
-String uid;
-
-// Database main path (to be updated in setup with the user UID)
-String databasePath;
-// Database child nodes
-String tempPath = "/temp";
-String timePath = "/time";
-
-// Parent Node (to be updated in every loop)
-String parentPath;
-
-int timestamp;
 FirebaseJson json;
-long timerDelay = 30000; //30 segs
-const char* ntpServer = "pool.ntp.org";
 
-//TEMPERATURA
+WiFiUDP ntpUDP;// Define NTP Client to get time
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
-#include "DHT.h"
+String uid;// Variable to save USER UID
 
-#define DHTPIN 23
-#define DHTTYPE DHT11
-#define TEMP 27
+String databasePath;// Database main path (to be updated in setup with the user UID)
 
-#define LED 25
-#define BOTON1 34
-#define BOTON2 35
+String tempPath = "/temperature"; // Database child nodes
+String humPath = "/humidity";
+String presPath = "/pressure";
+String timePath = "/timestamp";
 
+String parentPath;// Parent Node (to be updated in every loop)
 
-DHT dht(DHTPIN, DHTTYPE);
-Preferences preferences;
+int timestamp; // Variable to save current epoch time
 
-float temperaturaActual;
-int funcionamiento;
-float temperaturaUmbral = 26;
-float tempVieja;
+int estadoMaquina;
+int estadoMaquinaCiclo;
 
-int lecturaBoton1;
-int lecturaBoton2;
+int estadoSwitch1;
+int estadoSwitch2;
 
-int estadoBoton;
-int estadoBoton1;
-int estadoBoton2;
-int estadoBoton3;
-int estadoPantalla;
-int flagTemp;
+int cicloSegundos = 30;
+int timer;
+
+int valorUmbral = 27;
+
+float temp;
+float hum;
+
+unsigned long milisActuales;
+unsigned long milisPrevios;
+
+float temperature;
+float humidity;
+float pressure;
+
 unsigned long sendDataPrevMillis = 0;
 
-// Function that gets current epoch time
-unsigned long getTime() {
-  time_t now;
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    //Serial.println("Failed to obtain time");
-    return (0);
-  }
-  time(&now);
-  return now;
-}
+DHT_Unified dht(DHTPIN, DHTTYPE);
 
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+sensor_t sensor;
+
+void initWiFi();
 
 void setup() {
-  preferences.begin("my-app", false);
-  pinMode(LED, OUTPUT);
-  pinMode(BOTON1, INPUT_PULLUP);
-  pinMode(BOTON2, INPUT_PULLUP);
-
-  pinMode(TEMP, INPUT);
 
   Serial.begin(115200);
+
+  pinMode(SW_1, INPUT_PULLUP);
+  pinMode(SW_2, INPUT_PULLUP);
+
+  initWiFi();
+  timeClient.begin();
+
   dht.begin();
 
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  delay(2000);
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
+
+  config.api_key = API_KEY; // Assign the api key (required)
+
+  auth.user.email = USER_EMAIL; // Assign the user sign in credentials
+  auth.user.password = USER_PASSWORD;
+
+  config.database_url = DATABASE_URL; // Assign the RTDB URL (required)
+
+  Firebase.reconnectWiFi(true);
+  fbdo.setResponseSize(4096);
+
+  config.token_status_callback = tokenStatusCallback;   // Assign the callback function for the long running token generation task /see addons/TokenHelper.h
+
+  config.max_token_generation_retry = 5; // Assign the maximum retry of token generation
+
+  Firebase.begin(&config, &auth); // Initialize the library with the Firebase authen and config
+
+  Serial.println("Getting User UID"); // Getting the user UID might take a few seconds
+  while ((auth.token.uid) == "") {
+    Serial.print('.');
+    delay(1000);
+  }
+
+  uid = auth.token.uid.c_str();  // Print user UID
+  Serial.print("User UID: ");
+  Serial.println(uid);
+
+  databasePath = "/UsersData/" + uid + "/readings";  // Update database path
+}
+
+void loop() {
+
+  Serial.println(estadoMaquina);
+
+  estadoSwitch1 = digitalRead(SW_1);
+  estadoSwitch2 = digitalRead(SW_2);
+
+
+  milisActuales = millis(); // Guarda el tiempo en milisegundos desde que se inicio el programa
+
+  if ((milisActuales - milisPrevios) >= 1000) {
+
+    timer = timer + 1;
+
+    milisPrevios = milisActuales;
+
+  }
+
+  if (timer >= cicloSegundos) {
+    timer = 0;
+
+  }
+
+  if (cicloSegundos < 0) {
+    cicloSegundos = 0;
+  }
+
+
+
+  maquinaDeEstados ();
+  nuevosDatosFirebase();
+
+}
+
+void initWiFi() { // Initialize WiFi
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi ...");
+  Serial.print("Connecting to WiFi ..");
   while (WiFi.status() != WL_CONNECTED) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.print('.');
     delay(1000);
   }
   Serial.println(WiFi.localIP());
   Serial.println();
-  configTime(0, 0, ntpServer);
 
-  config.api_key = API_KEY;
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
-  config.database_url = DATABASE_URL;
-  Firebase.reconnectWiFi(true);
-  fbdo.setResponseSize(4096);
-  config.token_status_callback = tokenStatusCallback;
-  config.max_token_generation_retry = 5;
-  Firebase.begin(&config, &auth);
-  Serial.println("Getting User UID");
-  while ((auth.token.uid) == "") {
-    Serial.print('.');
-    delay(1000);
+}
+
+unsigned long getTime() { // Function that gets current epoch time
+
+  timeClient.update();
+  unsigned long now = timeClient.getEpochTime();
+  return now;
+}
+
+void nuevosDatosFirebase () {
+
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+  temp = event.temperature;
+
+  dht.humidity().getEvent(&event);
+  hum = event.relative_humidity;
+
+  if (Firebase.ready() && (millis() - sendDataPrevMillis > (cicloSegundos * 1000) || sendDataPrevMillis == 0)) {  // Send new readings to database
+
+    sendDataPrevMillis = millis();
+
+    //Get current timestamp
+    timestamp = getTime();
+    Serial.print ("time: ");
+    Serial.println (timestamp);
+
+    parentPath = databasePath + "/" + String(timestamp);
+
+    json.set(tempPath.c_str(), String(temp));
+    json.set(humPath.c_str(), String(hum));
+    // json.set(presPath.c_str(), "33"); el dht 11 no mide presion
+    json.set(timePath, String(timestamp));
+    Serial.printf("Set json... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
   }
-  uid = auth.token.uid.c_str();
-  Serial.print("User UID: ");
-  Serial.println(uid);
-  databasePath = "/UsersData/" + uid + "/readings";
+
+}
+
+void maquinaDeEstados () {
+
+  switch (estadoMaquina) {
+
+    case PANTALLA_1:
+
+      pantalla1();
+
+      if (estadoSwitch1 == LOW &&  estadoSwitch2 == LOW) {
+        estadoMaquina = ESPERA_1;
+      }
+
+      break;
+
+    case ESPERA_1:
+
+      pantalla1();
+
+      if (estadoSwitch1 == HIGH &&  estadoSwitch2 == HIGH) {
+        estadoMaquina = PANTALLA_2;
+      }
+
+      break;
+
+    case PANTALLA_2:
+
+      pantalla2();
+
+      if (estadoSwitch1 == LOW) {
+
+        estadoMaquina = SUMA_CICLO;
+      }
+
+      if (estadoSwitch2 == LOW) {
+
+        estadoMaquina = RESTA_CICLO;
+      }
+
+      if (estadoSwitch1 == LOW && estadoSwitch2 == LOW) {
+        estadoMaquina = ESPERA_2;
+      }
+
+      break;
+
+    case SUMA_CICLO:
+
+      pantalla2();
+
+      if (estadoSwitch1 == HIGH) {
+        cicloSegundos = cicloSegundos + 30;
+
+        estadoMaquina = PANTALLA_2;
+      }
+
+      if (estadoSwitch1 == LOW && estadoSwitch2 == LOW) {
+        estadoMaquina = ESPERA_2;
+      }
+
+      break;
+
+    case RESTA_CICLO:
+
+      pantalla2();
+
+      if (estadoSwitch2 == HIGH) {
+        cicloSegundos = cicloSegundos - 30;
+
+        estadoMaquina = PANTALLA_2;
+      }
+
+      if (estadoSwitch1 == LOW && estadoSwitch2 == LOW) {
+        estadoMaquina = ESPERA_2;
+      }
+
+      break;
+
+    case ESPERA_2:
+
+      pantalla2();
+
+      if ( estadoSwitch1 == HIGH && estadoSwitch2 == HIGH) {
+        estadoMaquina = PANTALLA_1;
+      }
+
+      break;
+
+  }
+
 }
 
 
-void loop() {
-  tempVieja = temperaturaActual;
-  temperaturaActual = dht.readTemperature();
+void pantalla1() {
 
-  if (flagTemp == 0) {
-    tempVieja = temperaturaActual;
-    flagTemp = 1;
-  }
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+  temp = event.temperature;
 
-  lecturaBoton1 = digitalRead(BOTON1);
-  lecturaBoton2 = digitalRead(BOTON2);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("Temperatura Actual: ");
+  display.println(event.temperature);
+  display.print("Valor Umbral: ");
+  display.println(valorUmbral);
+  display.display();
+}
 
-  switch (funcionamiento) {
-    case 0:
-      {
-        if (tempVieja != temperaturaActual) {
-          display.clearDisplay();
+void pantalla2() {
 
-        }
-        display.setCursor(0, 25);
-        display.print("Temp actual: ");
-        display.println(temperaturaActual);
-        display.display();
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print("Ciclo: ");
+  display.print(cicloSegundos);
+  display.print(" seg/s");
+  display.display();
 
-        unsigned int tempFlash = preferences.getUInt("tempFlash", 0);
-
-        display.setCursor(0, 45);
-        display.print("Temp umbral: ");
-        display.print(temperaturaUmbral);
-        display.display();
-
-        if (Firebase.ready() && (millis() - sendDataPrevMillis > timerDelay || sendDataPrevMillis == 0)) {
-          //Serial.println ("Entre en el if ");
-          sendDataPrevMillis = millis();
-
-          //Get current timestamp
-          timestamp = getTime();
-          Serial.print ("time: ");
-          Serial.println (timestamp);
-
-          parentPath = databasePath + "/" + String(timestamp);
-
-          /*json.set(tempPath.c_str(), String(bme.readTemperature()));
-            json.set(humPath.c_str(), String(bme.readHumidity()));
-            json.set(presPath.c_str(), String(bme.readPressure()/100.0F));*/
-          json.set(tempPath.c_str(), temperaturaActual);
-          json.set(timePath, String(timestamp));
-          Serial.printf("Set json... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
-        }
-
-        if (lecturaBoton1 == LOW && lecturaBoton2 == LOW ) {
-          estadoBoton3 = HIGH;
-        }
-
-        if (lecturaBoton1 == HIGH && lecturaBoton2 == HIGH && estadoBoton3 == HIGH) {
-          estadoBoton3 = LOW;
-          funcionamiento = 1;
-        }
-
-        break;
-      }
-    case 1:
-      {
-        display.clearDisplay();
-
-        display.setCursor(0, 25);
-        display.println("Ciclo de enviado");
-        display.print(timerDelay/1000);
-        display.print(" segundos");
-        display.display();
-
-
-        if (lecturaBoton1 == LOW && lecturaBoton2 == LOW ) {
-          estadoBoton3 = HIGH;
-        }
-
-        if (lecturaBoton1 == HIGH && lecturaBoton2 == HIGH && estadoBoton3 == HIGH) {
-          estadoBoton3 = LOW;
-          //preferences.putUInt("tempFlash", temperaturaUmbral);
-          funcionamiento = 0;
-          display.clearDisplay();
-          break;
-
-        }
-
-        if (lecturaBoton1 == LOW && lecturaBoton2 == HIGH && estadoBoton3 == LOW) {
-          estadoBoton1 = HIGH;
-        }
-
-        if (lecturaBoton1 == HIGH && estadoBoton1 == HIGH && estadoBoton3 == LOW) {
-          timerDelay -= 30000;
-          estadoBoton1 = LOW;
-        }
-
-        if (lecturaBoton2 == LOW && lecturaBoton1 == HIGH && estadoBoton3 == LOW) {
-          estadoBoton2 = HIGH;
-        }
-
-        if (lecturaBoton2 == HIGH && estadoBoton2 == HIGH && estadoBoton3 == LOW) {
-          timerDelay += 30000;
-          estadoBoton2 = LOW;
-        }
-
-
-
-
-        break;
-
-      }
-
-  }
 }
